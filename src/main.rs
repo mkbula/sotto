@@ -17,10 +17,12 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::rc::Rc;
 use std::sync::mpsc;
+use std::time::Duration;
 use transcription::TranscriptionWorker;
 
 const APP_ID: &str = "io.github.sotto";
 const DEFAULT_MODEL: &str = "ggml-base.en.bin";
+const PASTE_DELAY: Duration = Duration::from_millis(250);
 
 fn models_dir() -> Option<PathBuf> {
 	dirs::data_dir().map(|d| d.join("sotto").join("models"))
@@ -338,9 +340,22 @@ fn run_daemon() {
 
 			while let Some(result) = worker.try_recv_result() {
 				indicator_clone.hide();
-				if !result.is_empty() {
-					paste_text(&text::process_punctuation(&result));
+				if result.is_empty() {
+					eprintln!("Transcription produced no text");
+					continue;
 				}
+				let text = text::process_punctuation(&result);
+				eprintln!("Transcribed {} chars", text.chars().count());
+				// Paste only after the main loop has unmapped the indicator, so the
+				// compositor can return keyboard focus to the target window first.
+				glib::timeout_add_local_once(PASTE_DELAY, move || {
+					if !paste_text(&text) {
+						eprintln!(
+							"Transcription was not inserted ({} chars)",
+							text.chars().count()
+						);
+					}
+				});
 			}
 
 			glib::ControlFlow::Continue

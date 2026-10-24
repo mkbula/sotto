@@ -127,3 +127,40 @@ impl Drop for TranscriptionWorker {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::time::Instant;
+
+	// Manual check against a real model: SOTTO_TEST_MODEL=<ggml model> SOTTO_TEST_AUDIO=<16 kHz mono f32le>
+	#[test]
+	#[ignore]
+	fn transcribes_consecutive_utterances() {
+		let model = std::env::var("SOTTO_TEST_MODEL").expect("SOTTO_TEST_MODEL");
+		let audio =
+			std::fs::read(std::env::var("SOTTO_TEST_AUDIO").expect("SOTTO_TEST_AUDIO")).unwrap();
+		let samples: Vec<f32> = audio
+			.chunks_exact(4)
+			.map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+			.collect();
+
+		let worker = TranscriptionWorker::start(PathBuf::from(model)).unwrap();
+		for run in 1..=3 {
+			let started = Instant::now();
+			worker.transcribe(samples.clone(), "auto");
+			let text = loop {
+				if let Some(text) = worker.try_recv_result() {
+					break text;
+				}
+				assert!(
+					started.elapsed() < Duration::from_secs(120),
+					"run {run} timed out"
+				);
+				thread::sleep(Duration::from_millis(50));
+			};
+			eprintln!("run {run}: {:?} in {:?}", text, started.elapsed());
+			assert!(!text.is_empty(), "run {run} produced no text");
+		}
+	}
+}

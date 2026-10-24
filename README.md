@@ -12,7 +12,7 @@ https://github.com/user-attachments/assets/e8480c00-81dc-45d3-8369-d4e12b32ea1d
 - **Fully local** — no cloud services, no API keys, no internet required
 - **GPU accelerated** — Vulkan support for NVIDIA, AMD, and Intel GPUs
 - **Voice activity detection** — automatically filters silence
-- **Auto-paste** — transcription typed directly at cursor via wtype
+- **Auto-paste** — transcription typed directly at cursor via wtype, or pasted via clipboard + ydotool on GNOME
 - **Push-to-talk mode** — hold a key to record, release to transcribe (requires input group)
 - **Spoken punctuation** — say "period", "comma", "question mark" etc. to insert symbols
 - **Visual indicator** — layer shell overlay shows recording time and status
@@ -42,6 +42,8 @@ sudo pacman -S gtk4 libadwaita gtk4-layer-shell pipewire wl-clipboard wtype vulk
 cargo build --release
 ./target/release/sotto
 ```
+
+On GNOME, wtype cannot type (Mutter lacks the virtual-keyboard protocol), so Sotto copies the text with `wl-copy` and sends Ctrl+V through `ydotool`. Install `ydotool`, enable its user service, and make sure your user is in the `input` group. This replaces the current clipboard contents, and terminals that paste with Ctrl+Shift+V will not receive the text.
 
 ## Quick Start
 
@@ -104,7 +106,8 @@ sotto disable      # Disable systemd user service
 | gtk4, libadwaita | Control panel |
 | gtk4-layer-shell | Visual indicator overlay |
 | pipewire | Audio capture |
-| wtype | Auto-paste transcription |
+| wtype | Auto-paste transcription (wlroots compositors) |
+| wl-clipboard, ydotool | Auto-paste fallback where wtype is unsupported (GNOME); needs `systemctl --user enable --now ydotool` |
 | vulkan-icd-loader | GPU acceleration |
 
 ## Models

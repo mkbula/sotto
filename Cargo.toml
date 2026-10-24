@@ -11,7 +11,7 @@ categories = ["multimedia::audio"]
 [dependencies]
 gtk = { version = "0.10.3", package = "gtk4" }
 adw = { version = "0.8.1", package = "libadwaita" }
-whisper-rs = { version = "0.15.1", features = ["vulkan"] }
+whisper-rs = { version = "0.16.0", features = ["vulkan"] }
 ureq = "3.1.4"
 dirs = "6.0.0"
 cpal = "0.17.1"
