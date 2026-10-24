@@ -9,9 +9,16 @@ const CHANNELS: u16 = 1;
 const CHUNK_SIZE: usize = 512;
 const SPEECH_THRESHOLD: f32 = 0.5;
 
+#[derive(Default)]
+struct CaptureStats {
+	captured: usize,
+	peak: f32,
+}
+
 pub struct AudioRecorder {
 	_stream: cpal::Stream,
 	samples: Arc<Mutex<Vec<f32>>>,
+	stats: Arc<Mutex<CaptureStats>>,
 	vad_handle: Option<JoinHandle<()>>,
 	stop_flag: Arc<AtomicBool>,
 }
@@ -41,6 +48,7 @@ impl AudioRecorder {
 		let (tx, rx) = crossbeam_channel::bounded::<Vec<f32>>(100);
 		let samples: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
 		let stop_flag = Arc::new(AtomicBool::new(false));
+		let stats: Arc<Mutex<CaptureStats>> = Arc::new(Mutex::new(CaptureStats::default()));
 
 		let stream = device
 			.build_input_stream(
@@ -59,6 +67,7 @@ impl AudioRecorder {
 
 		let samples_clone = Arc::clone(&samples);
 		let stop_clone = Arc::clone(&stop_flag);
+		let stats_clone = Arc::clone(&stats);
 
 		let vad_handle = thread::spawn(move || {
 			let mut vad = match VoiceActivityDetector::builder()
@@ -78,6 +87,10 @@ impl AudioRecorder {
 			while !stop_clone.load(Ordering::Relaxed) {
 				match rx.recv_timeout(std::time::Duration::from_millis(50)) {
 					Ok(chunk) => {
+						if let Ok(mut stats) = stats_clone.lock() {
+							stats.captured += chunk.len();
+							stats.peak = chunk.iter().fold(stats.peak, |p, s| p.max(s.abs()));
+						}
 						pending.extend_from_slice(&chunk);
 
 						while pending.len() >= CHUNK_SIZE {
@@ -100,6 +113,7 @@ impl AudioRecorder {
 		Ok(Self {
 			_stream: stream,
 			samples,
+			stats,
 			vad_handle: Some(vad_handle),
 			stop_flag,
 		})
@@ -112,9 +126,33 @@ impl AudioRecorder {
 			let _ = handle.join();
 		}
 
-		match Arc::try_unwrap(self.samples) {
+		let samples = match Arc::try_unwrap(self.samples) {
 			Ok(mutex) => mutex.into_inner().unwrap_or_default(),
 			Err(arc) => arc.lock().map(|g| g.clone()).unwrap_or_default(),
+		};
+
+		if let Ok(stats) = self.stats.lock() {
+			log_capture(&stats, samples.len());
 		}
+
+		samples
+	}
+}
+
+fn log_capture(stats: &CaptureStats, speech: usize) {
+	let seconds = |n: usize| n as f32 / SAMPLE_RATE as f32;
+	let peak_db = if stats.peak > 0.0 {
+		20.0 * stats.peak.log10()
+	} else {
+		f32::NEG_INFINITY
+	};
+	eprintln!(
+		"Recorded {:.1}s, speech {:.1}s, peak {:.1} dBFS",
+		seconds(stats.captured),
+		seconds(speech),
+		peak_db
+	);
+	if speech == 0 {
+		eprintln!("No speech detected; nothing to transcribe. Is the microphone muted?");
 	}
 }
